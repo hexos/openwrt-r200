@@ -1,0 +1,21 @@
+#!/bin/sh
+# 首次启动：如果 rootfs 里已经叠加了厂商栈（/opt/vendor），就把它打开。
+# 这是"glibc 厂商栈"路线的自动化开关：没有叠加栈的镜像行为完全不变。
+
+if [ -x /opt/vendor/bin/netmgrd ] || [ -x /opt/vendor/bin/hostapd ]; then
+	logger -t r200-vendor "检测到厂商栈，启用 /etc/init.d/r200-vendor"
+	uci -q set r200.vendor.enable='1'
+	# WiFi 只在固件与 hostapd 配置都在的情况下打开
+	if [ -d /lib/firmware/wlan/qca_cld ] && [ -f /etc/misc/wifi/hostapd.conf ]; then
+		uci -q set r200.vendor.wifi='1'
+	fi
+	if [ -f /lib/modules/4.14.206-perf/kernel/drivers/qca-ssdk-nohnat/qca-ssdk.ko ]; then
+		uci -q set r200.vendor.switch='1'
+	fi
+	uci -q commit r200
+	/etc/init.d/r200-vendor enable
+else
+	logger -t r200-vendor "没有厂商栈（/opt/vendor 不存在），跳过"
+fi
+
+exit 0
