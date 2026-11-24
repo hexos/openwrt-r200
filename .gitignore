@@ -1,0 +1,10 @@
+out/
+device.json
+kernel.config
+*.ubi
+*.img
+*.bin
+!firmware/*.xml
+out-test/
+__pycache__/
+
