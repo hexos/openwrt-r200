@@ -151,6 +151,33 @@ SONAME 落盘，并带上厂商自带的 `ld-linux-armhf.so.3`。于是 musl 的
 
 > 仍然未验证的：这份 system.ubi 刷进真机能不能起来。CI 只证明"构建/打包/自检"这条链路是通的。
 
+### `variant=musl-vendor`（叠加厂商 glibc 栈）也跑通了
+
+run 45356336474，18 个步骤全 success，其中：
+
+| 步骤 | 真实输出 |
+|---|---|
+| fetch vendor stack | 从 Release 资产下载 14.6 MiB tar.gz → `prepare_vendor_stack.py --verify` 通过（63 个 ELF 依赖 0 缺失） |
+| apply vendor stack | `/opt/vendor/bin`（10 个二进制）+ `/opt/vendor/lib`（53 个库）+ `lib/modules/4.14.206-perf/extra/wlan.ko` + `lib/firmware/wlan/qca_cld/` 全部就位 |
+| build system.ubi | UBIFS 24.4 MiB → **system.ubi 25.8 MiB（103 块）**，卷 `rootfs` 预留 101 个 LEB |
+| verify ubi geometry | 几何 4 项全对、卷名 `rootfs`、UBIFS 超级块在第 2 块 → 可以刷 |
+| upload-artifact | `r200-openwrt-musl-vendor`，**20.45 MiB** |
+
+这一轮又修了一个真问题：**Windows 上打出来的 tar 会丢可执行位**，
+厂商栈解出来后 `ld-linux-armhf.so.3` 不是 `+x`，workflow 里 `test -x` 直接失败。
+→ 现在 tar 打包时显式设 `0755`（bin/lib），workflow 解包后也会 `chmod -R 0755` 兜底。
+
+两个变体的差异（同一份代码、同一个 overlay，只是多叠了 30 MiB 厂商栈）：
+
+| | musl-core | musl-vendor |
+|---|---|---|
+| system.ubi | 8.0 MiB / 32 块 / 卷预留 30 LEB | 25.8 MiB / 103 块 / 卷预留 101 LEB |
+| Artifact | 3.93 MiB | 20.45 MiB |
+| 5G / WiFi | ✗ | 二进制与模块都在了，等真机验证启动链 |
+
+> 顺带说明：厂商栈作为 **Release 资产**存放（`vendor-stack-2026-11-24`），不进货仓历史，
+> 所以仓库本身依旧"零厂商二进制"。
+
 ## 回滚
 
 本方案只写 `system` 分区，`bootloader` / `tz` / `modem` / `efs2`（IMEI 等校准数据）/
