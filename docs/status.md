@@ -123,6 +123,34 @@ SONAME 落盘，并带上厂商自带的 `ld-linux-armhf.so.3`。于是 musl 的
 
 这不是几小时能完成的事。本工程先把"能刷、能回滚、能自动构建"这条地基打好。
 
+## CI 实测（2026-11-24, GitHub Actions, 私有仓库 hexos/openwrt-r200）
+
+`variant=musl-core` 全流程 **18 个步骤全部 success**（run 45354787460）：
+
+| 步骤 | 结果 | 真实输出 |
+|---|---|---|
+| repo selftest | ✅ | 40 项通过 / 1 警告（CI 里没有原厂固件，跳过实测核对） |
+| fetch rootfs（ImageBuilder） | ✅ | `openwrt-imagebuilder-23.05.5-sunxi-cortexa7`，暂存根 `build_dir/target-arm_cortex-a7+neon-vfpv4_musl_eabi/root-sunxi`，rootfs 13 MiB |
+| build system.ubi | ✅ | 几何 `page=4096 block=262144 leb=253952`，产出 **8.0 MiB（32 块）** |
+| verify ubi geometry | ✅ | 几何 4 项全对、卷名 `rootfs`、UBIFS 超级块落在第 2 块 → "可以刷" |
+| build edl flash package | ✅ | rawprogram + patch + system.ubi 打包完成 |
+| upload-artifact | ✅ | `r200-openwrt-musl-core` |
+
+这一轮顺带修掉的真问题（都是 CI 才暴露出来的）：
+
+1. **workflow 被判无效**：`run: |` 里有顶格的 Python heredoc，YAML 字面块在那里被截断，
+   整份文件结构崩掉 → GitHub 认为"没有 workflow_dispatch 触发器"。改成 `PAD_IMAGE=no` 开关，删掉 heredoc。
+2. **PowerShell 写入的 UTF-8 BOM** 让 GitHub 解析不了 `name:`/`on:`，已全仓库清理。
+3. **ImageBuilder 装包冲突**：23.05 的 sunxi profile 默认带 `firewall4`/`nftables`，
+   而我们要装 fw3 的 `firewall`，两者争 `/etc/init.d/firewall` → opkg Error 255。
+   用 `-firewall4 -nftables -kmod-nft-offload` 摘掉默认项后通过。
+4. **`make | tail -30` 把 opkg 的报错吞了**（所以第一次只能看到 `Error 255`），改成先落盘、失败时打尾部 120 行。
+5. **UBIFS max_leb_cnt 与 autoresize 不一致**的隐患：卷在挂载时会从 30 个 LEB 长到 1033 个，
+   `mkfs.ubifs -c` 必须按最大可能值给（现改为"分区块数 + 2"），否则可能报
+   `max_leb_cnt < leb count` 挂不上。
+
+> 仍然未验证的：这份 system.ubi 刷进真机能不能起来。CI 只证明"构建/打包/自检"这条链路是通的。
+
 ## 回滚
 
 本方案只写 `system` 分区，`bootloader` / `tz` / `modem` / `efs2`（IMEI 等校准数据）/
