@@ -1,0 +1,13 @@
+name: probe1
+on:
+  workflow_dispatch:
+    inputs:
+      variant:
+        description: "variant: musl-core | musl-vendor"
+        default: "musl-core"
+jobs:
+  p:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: echo input
+        run: echo "v=${{ github.event.inputs.variant }}"
