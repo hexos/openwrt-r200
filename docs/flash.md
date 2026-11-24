@@ -58,50 +58,65 @@ EDL 是 SoC 内部固化的下载模式，只要进了 9008，砖机也能救。
 
 ## 2.5 QFIL 报 `Download Fail:FireHose Fail:FHLoader Fail:Process fail` 怎么办
 
-**这不是镜像的问题，QFIL 的 GUI 流程在这台 NAND 机上走不通。** 真实原因在
-`%APPDATA%\Qualcomm\QFIL\COMPORT_<n>\port_trace.txt` 里能看到：
+### 先看清楚：那次尝试根本还没开始写
+
+`port_trace.txt` 里 fh_loader 是被这样调起来的：
 
 ```
-fh_loader.exe --port=\\.\COM10 --setactivepartition=0 ... --memoryname=nand
-<configure MemoryName="nand" .../>            <- 通了
-<setbootablestoragedrive value="0" />         <- QFIL 因为 --setactivepartition=0 自动发的
+fh_loader.exe --port=\\.\COM10 --setactivepartition=0 --noprompt --showpercentagecomplete --zlpawarehost=1 --memoryname=nand
+```
+
+**没有 `--sendxml`** —— 这是 QFIL 的"预处理"步骤（设置活动启动分区），不是刷写步骤。
+也就是说这次尝试连一个分区都没动，接着才是真正带 `--sendxml=rawprogram...` 的刷写调用。
+
+它失败在这里：
+
+```
+<configure MemoryName="nand" .../>                        <- 通了
+<setbootablestoragedrive value="0" />                     <- 预处理命令
 TARGET: 'INFO: NAND was previously open, returning existing handle 0'
-TARGET: 'ERROR: Set Bootable Failed 1'  -> NAK -> QFIL 当致命错误终止
+TARGET: 'ERROR: Set Bootable Failed 1'   -> NAK
 ```
 
-`setbootablestoragedrive` 是 eMMC/UFS 的"从哪个 LUN 启动"概念，对 NAND 没有意义，
-sdx55 的 NAND programmer 直接回 `Set Bootable Failed 1`。也就是说：
-Sahara / programmer 加载 / USB / 驱动 **全都是好的**，只差最后这一步被 QFIL 拖死。
+关键就是那句 **`NAND was previously open, returning existing handle 0`**：
+programmer 还握着上一次（失败/中断的）会话留下的 NAND 句柄，状态不干净。
+**原厂包用同一套 QFIL 能刷成功，说明这一步在干净状态下是能过的**
+（原厂包和我们包的差别只在 rawprogram 内容，而这个预处理步骤跟 rawprogram 无关）。
 
-两条绕开它的路：
+### 正确做法：每次尝试前彻底断电重进
+
+1. 拔掉 **12V 适配器** 和 **USB**，等 10 秒（让 programmer 会话彻底消失）；
+2. 重新进入 9008：按住复位键 / 短接 EDL 点 → 上电 → 设备管理器出现 `Qualcomm HS-USB QDLoader 9008`；
+3. **第一次点 Download 就要成功**。一旦失败过，必须回到第 1 步重来，
+   不能连着点第二次 —— "previously open" 就是这么来的；
+4. 判断是否真的在写：trace 里应该出现 `Sending <program>` / `<erase>` 和进度百分比，
+   而不是停在 `Set Bootable`。
+
+> 注意 QFIL 每次运行都会覆盖 `port_trace.txt`，所以你现在看到的是**最后一次**尝试的日志。
+
+### 如果断电重进后仍然卡在 Set Bootable
+
+那就绕开 QFIL 的预处理步骤：
 
 **A. 直接用 fh_loader（包里已带 `flash_fh_loader.bat`，不用装 Python）**
 
-先让 QFIL 点一次 Download、停在 `Set Bootable` 报错（此时 programmer 已加载、别拔线），
-然后在包目录里执行：
+让 QFIL 点一次 Download、停在 `Set Bootable` 报错（此时 programmer 已加载、别拔线），
+然后在包目录里执行 `flash_fh_loader.bat 10`（10 = COM 号）。它做的就是去掉
+`--setactivepartition`：
 
-```bat
-flash_fh_loader.bat 10
-```
-
-它做的事就是去掉 `--setactivepartition`：
 ```bat
 fh_loader.exe --port=\\.\COM10 --search_path="<包目录>" ^
   --sendxml=rawprogram_r200_openwrt.xml --noprompt ^
   --showpercentagecomplete --zlpawarehost=1 --memoryname=nand --verbose=2
 ```
 
-**B. 用开源 edl（推荐长期用，能自己带 programmer 握手）**
+**B. 用开源 edl（长期推荐，自己带 Sahara→Firehose）**
 
 ```powershell
 winget install -e --id Python.Python.3.12
 python -m pip install edlclient
 edl qfil rawprogram_r200_openwrt.xml patch_r200.xml --loader=prog_firehose_sdx55.mbn --memory=nand
 ```
-
-> 顺带一个结论：如果**原厂整机包**在这台 QFIL 上同样报 `FHLoader Fail`，说明品速/美格
-> 原厂也不是用 QFIL GUI 刷的（他们有自己的 fh_loader 批处理或私有工具）。
-> 这不影响我们的方案 —— 上面两条路都能刷。
 
 ## 3. Linux：bkerler/edl
 
