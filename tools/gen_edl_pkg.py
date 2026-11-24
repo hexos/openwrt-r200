@@ -94,9 +94,10 @@ def main():
     if not targets:
         sys.exit("至少要给一个镜像（--system/--boot/--webui）")
 
-    lines = ['<?xml version="1.0" ?>',
-             '<!-- OpenWrt for Pinsu R200 (SDX55) - selective flashing -->',
-             '<!-- 只写下面列出的分区；其它分区（sbl/mibib/efs2/modem/recoveryfs ...）保持原样 -->',
+    lines = ['<?xml version="1.0" encoding="UTF-8"?>',
+             '<!-- OpenWrt for Pinsu R200 (SDX55 / sdxprairie) - selective flash -->',
+             '<!-- Only the partitions listed below are touched. -->',
+             '<!-- sbl / mibib / efs2 / modem / recoveryfs etc. are left untouched. -->',
              '<data>']
     sha_lines = []
     for label, src, dstname in targets:
