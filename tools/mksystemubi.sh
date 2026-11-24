@@ -80,15 +80,24 @@ fi
 
 mkdir -p "$(dirname "$OUT")"
 cp "$WORK/system.ubi" "$OUT"
-# 补齐到整个分区（0xFF = NAND 擦除态），让 EDL 写入长度固定、便于校验
-python3 - "$OUT" "$PART_BYTES" <<'PY'
+
+# PAD_IMAGE=yes（默认）：用 0xFF 补齐到整个 system 分区，写入长度固定、便于逐字节核对。
+# PAD_IMAGE=no          ：保留 UBI 自然长度（体积小得多，EFlash 工具写多少算多少，
+#                         分区剩余部分本来就是 0xFF 擦除态）。
+if [ "${PAD_IMAGE:-yes}" = "yes" ]; then
+  python3 - "$OUT" "$PART_BYTES" <<'PY'
+import os
 import sys
+
 path, size = sys.argv[1], int(sys.argv[2])
-cur = __import__("os").path.getsize(path)
+cur = os.path.getsize(path)
 if cur < size:
     with open(path, "ab") as f:
         f.write(b"\xff" * (size - cur))
     print(f"[*] 已补齐 {size - cur} 字节 -> {size}")
 PY
+else
+  echo "[*] PAD_IMAGE=no，保留自然大小 $SIZE 字节"
+fi
 
 echo "[+] 完成: $OUT ($(stat -c %s "$OUT") 字节)"
