@@ -96,9 +96,11 @@ jobs:
             exit 1
           fi
           mkdir -p out/vendor-stack
-          curl -fsSL -o out/vendor-stack.tar.gz "$VENDOR_STACK_URL"
+          curl -fsSL --retry 3 -o out/vendor-stack.tar.gz "$VENDOR_STACK_URL"
           tar -xzf out/vendor-stack.tar.gz -C out/vendor-stack
-          test -x out/vendor-stack/opt/vendor/lib/ld-linux-armhf.so.3
+          # Windows 上打出来的 tar 会丢可执行位，这里统一补回来
+          chmod -R 0755 out/vendor-stack/opt/vendor/bin out/vendor-stack/opt/vendor/lib
+          test -f out/vendor-stack/opt/vendor/lib/ld-linux-armhf.so.3
           python3 tools/prepare_vendor_stack.py --verify -o out/vendor-stack
 
       - name: fetch rootfs (imagebuilder, musl)
