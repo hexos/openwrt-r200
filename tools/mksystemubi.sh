@@ -21,8 +21,11 @@ PART_BYTES="${3:-$(( PART_system_sectors * SECTOR_SIZE ))}"
 MKFS_UBIFS="${MKFS_UBIFS:-mkfs.ubifs}"
 UBINIZE="${UBINIZE:-ubinize}"
 COMPR="${UBIFS_COMPR:-zlib}"
-# UBIFS 记账用的最大 LEB 数：必须 >= 卷实际 LEB 数，否则挂载会报错
-MAX_LEB="${MAX_LEB:-$(( PART_BYTES / NAND_BLOCK_SIZE - 4 ))}"
+# UBIFS 超级块里的 max_leb_cnt 必须 >= 卷**最终**的 LEB 数。
+# 卷用了 autoresize，挂载时会从镜像里的 30 个 LEB 长到整个 system 分区的 1033 个，
+# 所以这里按"分区全部块数"给（1035），留足余量，避免 UBIFS 报
+# "superblock max_leb_cnt less than LEB count" 而挂不上（这只是在超级块里记个数，不占空间）。
+MAX_LEB="${MAX_LEB:-$(( PART_BYTES / NAND_BLOCK_SIZE + 2 ))}"
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
