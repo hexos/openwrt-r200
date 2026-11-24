@@ -133,7 +133,7 @@ SONAME 落盘，并带上厂商自带的 `ld-linux-armhf.so.3`。于是 musl 的
 | fetch rootfs（ImageBuilder） | ✅ | `openwrt-imagebuilder-23.05.5-sunxi-cortexa7`，暂存根 `build_dir/target-arm_cortex-a7+neon-vfpv4_musl_eabi/root-sunxi`，rootfs 13 MiB |
 | build system.ubi | ✅ | 几何 `page=4096 block=262144 leb=253952`，产出 **8.0 MiB（32 块）** |
 | verify ubi geometry | ✅ | 几何 4 项全对、卷名 `rootfs`、UBIFS 超级块落在第 2 块 → "可以刷" |
-| build edl flash package | ✅ | rawprogram + patch + system.ubi 打包完成 |
+| build edl flash package | ✅ | rawprogram + system.ubi 打包完成（不带 patch：本包不 patch 任何分区） |
 | upload-artifact | ✅ | `r200-openwrt-musl-core` |
 
 这一轮顺带修掉的真问题（都是 CI 才暴露出来的）：
