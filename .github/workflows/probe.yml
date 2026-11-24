@@ -1,0 +1,13 @@
+name: probe
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: hello
+        run: |
+          echo "probe ok"
+          uname -a
