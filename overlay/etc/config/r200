@@ -1,0 +1,8 @@
+config r200 'vendor'
+	option enable '0'
+	# 1 = 加载 qcacld（wlan.ko）并用厂商 hostapd 起 WiFi
+	option wifi '0'
+	# 1 = 加载 QCA SSDK（qca-ssdk.ko），3 个千兆口走交换芯片
+	option switch '0'
+	# 厂商 glibc 运行时的位置（由 prepare_vendor_stack.py 生成）
+	option vendor_root '/opt/vendor'
