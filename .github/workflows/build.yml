@@ -1,4 +1,4 @@
-﻿name: build-r200-openwrt
+name: build-r200-openwrt
 
 # 品速智联 R200（Qualcomm SDX55 / sdxprairie）OpenWrt 根文件系统全自动构建。
 #
