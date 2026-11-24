@@ -1,5 +1,22 @@
 # 刷机 / 回滚（高通 9008 EDL）
 
+> **一分钟版（照着做）**
+>
+> 0. 确认分区表一致（很关键，尤其你的原厂包不是 6.00.7 时）：
+>    ```powershell
+>    powershell -NoProfile -ExecutionPolicy Bypass -File tools\check-partition-table.ps1 -FirmwareDir <原厂Maincode目录> -Diff
+>    ```
+>    看到 `[PASS]` 才继续。或者最省事：直接看原厂 XML 里 system 那行的
+>    `start_sector="64832"` / `num_partition_sectors="66240"` 对不对得上。
+> 1. 建目录 `C:\R200-openwrt\`，放 4 个文件：`rawprogram_r200_openwrt.xml`、
+>    `patch_r200.xml`、`system.ubi`（这三个来自 CI 的 `edl-r200/`）、
+>    `prog_firehose_sdx55.mbn`（从原厂目录复制）。
+> 2. QFIL：Programmer = 那个 mbn；Search Path = `C:\R200-openwrt`；
+>    **Load XML** 选 `rawprogram_r200_openwrt.xml` + `patch_r200.xml`；**Download**。
+> 3. 拔线重上电，浏览器开 <http://192.168.1.1>。
+>
+> 出问题 → 用原厂整机包重刷（见文末"回滚"）。它只写了 `system` 一个分区，随时可退。
+
 > 先把这句话读完：**动手之前，确认你手里有原厂整机包**（本目录同级的
 > `R200-6.00.7/Maincode/` 就是）。本方案只覆盖 `system` 分区，
 > 出任何问题都能用原厂包整机刷回来。
