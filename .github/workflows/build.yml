@@ -183,8 +183,7 @@ jobs:
           name: r200-openwrt-${{ env.VARIANT }}
           path: |
             out/r200-openwrt-flash.zip
-            out/edl-r200/SHA256SUMS
-            out/edl-r200/BUILD-INFO.txt
+            out/edl-r200/*
 
       - name: summary
         run: |
@@ -195,3 +194,4 @@ jobs:
             echo "- flash: unzip r200-openwrt-flash.zip, copy edl-r200/* next to prog_firehose_sdx55.mbn"
             echo "  and use QFIL with rawprogram_r200_openwrt.xml + patch_r200.xml"
           } >> "$GITHUB_STEP_SUMMARY"
+
