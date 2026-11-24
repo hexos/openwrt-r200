@@ -44,9 +44,13 @@ SUB="${OPENWRT_SUBTARGET:-cortexa7}"
 PROFILE="${OPENWRT_PROFILE:-friendlyarm_nanopi-neo}"
 BASE="https://downloads.openwrt.org/releases/$REL/targets/$TGT/$SUB"
 
-# 说明：原厂内核 CONFIG_NF_TABLES 未开启 → 不用 firewall4/nftables；
-#       也不装任何"需要真加载"的 kmod。
-DEFAULT_PACKAGES="base-files busybox ca-bundle dnsmasq dropbear firewall fstools \
+# 说明：
+#  * 原厂内核 CONFIG_NF_TABLES 未开启 → 不用 firewall4/nftables，改用 fw3(iptables)，
+#    所以要用 -pkg 语法把 profile 默认带进来的 firewall4/nftables/kmod-nft-offload 摘掉，
+#    否则 fw3 与 fw4 会争 /etc/init.d/firewall、/sbin/fw* 这些文件，opkg 直接报错。
+#  * 同样不装任何"需要真加载"的 kmod。
+DEFAULT_PACKAGES="-firewall4 -nftables -kmod-nft-offload \
+base-files busybox ca-bundle dnsmasq dropbear firewall fstools \
 iptables iptables-mod-conntrack-extra iptables-mod-extra iptables-mod-filter \
 iptables-mod-nat-extra iptables-mod-ipopt libc libgcc libustream-mbedtls logd mtd \
 netifd odhcpd-ipv6only opkg procd procd-seccomp uci uclient-fetch urandom-seed \
@@ -65,7 +69,16 @@ tar -xf "$WORK/ib.tar.xz" -C "$WORK"
 IBDIR="$(find "$WORK" -maxdepth 1 -type d -name 'openwrt-imagebuilder-*' | head -1)"
 
 echo "[*] 构建（profile=$PROFILE）"
-make -C "$IBDIR" image PROFILE="$PROFILE" PACKAGES="$PACKAGES" -j"$(nproc)" 2>&1 | tail -30
+echo "    PACKAGES=$PACKAGES"
+# 注意：不要把 make 的输出 pipe 给 tail —— 失败时会把 opkg 的真正报错吃掉。
+# 先落到文件，成功只看末尾几行，失败时把报错区整段打出来。
+if ! make -C "$IBDIR" image PROFILE="$PROFILE" PACKAGES="$PACKAGES" -j"$(nproc)" \
+      > "$WORK/ib.log" 2>&1; then
+  echo "!! ImageBuilder 失败，日志尾部（含 opkg 报错）:" >&2
+  tail -120 "$WORK/ib.log" >&2
+  exit 1
+fi
+tail -5 "$WORK/ib.log"
 
 rm -rf "$ROOTFS"
 bash "$HERE/extract_rootfs.sh" "$IBDIR" "$ROOTFS"
