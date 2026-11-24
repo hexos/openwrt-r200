@@ -1,0 +1,24 @@
+config interface 'loopback'
+	option device 'lo'
+	option proto 'static'
+	option ipaddr '127.0.0.1'
+	option netmask '255.0.0.0'
+
+config globals 'globals'
+	option ula_prefix 'fd11:2233:4455::/48'
+
+# LAN 的 ifname 由 /etc/uci-defaults/99-r200 在首次启动时按实际网口自动填充。
+config interface 'lan'
+	option device 'br-lan'
+	option type 'bridge'
+	option proto 'static'
+	option ipaddr '192.168.1.1'
+	option netmask '255.255.255.0'
+	option ip6assign '60'
+
+# 5G 上行（SDX55 拨号）需要 kmod + 厂商 QMI/RMNET 用户态，属于第二阶段工作，
+# 见 docs/status.md。这里先留一个占位接口，配好后把 proto 改成 dhcp。
+config interface 'wan'
+	option proto 'none'
+	option device 'rmnet_data0'
+	option auto '0'
