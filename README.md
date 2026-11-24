@@ -48,7 +48,8 @@
    - `variant`：先用 `musl-core` 确认能启动，再换 `musl-vendor`（填 `vendor_stack_url`）
    - 其它默认即可（`23.05.5` / `sunxi` / `cortexa7`，关键是 CPU 必须是 cortex-a7）
 4. 跑完下载 Artifact `r200-openwrt-<variant>`，解压得到 `edl-r200/`。
-5. 按 [`docs/flash.md`](docs/flash.md) 用 QFIL 刷 `rawprogram_r200_openwrt.xml`。
+5. 按 [`docs/flash.md`](docs/flash.md) 用 QFIL 刷 `rawprogram_r200_openwrt.xml`
+   （Patch 一栏留空；QFIL 的 FireHose 预处理报错时用包里的 `flash_fh_loader.bat`）。
 
 > 本仓库已经把厂商栈放在 Release 资产里（`vendor-stack-2026-11-24`），
 > 跑 `musl-vendor` 时直接把它的下载地址填进 `vendor_stack_url` 即可。
