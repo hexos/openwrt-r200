@@ -149,19 +149,7 @@ jobs:
 
       - name: build system.ubi
         run: |
-          bash tools/mksystemubi.sh out/rootfs-pkg/rootfs out/system.ubi
-          python3 - <<'PY'
-import os
-p = "out/system.ubi"
-data = open(p, "rb").read()
-i = len(data)
-while i >= 262144 and data[i - 262144:i] == b"\xff" * 262144:
-    i -= 262144
-if i < len(data):
-    with open(p, "r+b") as f:
-        f.truncate(i)
-print(f"system.ubi -> {i} bytes ({i / 1048576:.1f} MiB)")
-PY
+          PAD_IMAGE=no bash tools/mksystemubi.sh out/rootfs-pkg/rootfs out/system.ubi
           ls -l out/system.ubi
 
       - name: verify ubi geometry
