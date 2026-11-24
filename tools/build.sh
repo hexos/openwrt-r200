@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env bash
+#!/usr/bin/env bash
 # build.sh —— 本地一条命令跑完：rootfs → overlay(+厂商栈) → system.ubi → 9008 刷机包
 #
 #   ./tools/build.sh [输出目录，默认 out] [厂商栈目录，可选]
