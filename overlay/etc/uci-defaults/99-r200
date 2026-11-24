@@ -1,0 +1,61 @@
+#!/bin/sh
+# R200 首次启动的一次性配置（uci-defaults 机制：执行后自动删除自己）
+
+# ---- 系统 ----
+uci -q batch <<-EOF
+	set system.@system[0].hostname='R200'
+	set system.@system[0].description='Pinsu R200 (SDX55) - OpenWrt'
+	set system.@system[0].conloglevel='8'
+	set system.@system[0].cronloglevel='9'
+	set system.ntp.enabled='1'
+	set system.ntp.enable_server='1'
+EOF
+
+# ---- LAN 网口自动识别 ----
+# SDX55 CPE 各厂板级走线不同，网口名字（eth0 / swconfig / DSA）无法预先写死。
+# 这里把"带 device 节点的物理网口"都塞进 br-lan；rmnet/wwan/usb 之类排除掉。
+PORTS=""
+for dev in /sys/class/net/*; do
+	[ -e "$dev/device" ] || continue
+	name="$(basename "$dev")"
+	case "$name" in
+		lo|sit*|tun*|rmnet*|wwan*|usb*|br-*|docker*|veth*) continue ;;
+	esac
+	PORTS="$PORTS $name"
+done
+# 兜底：没有 PCI/USB device 节点的（比如片上 MAC）也考虑进来
+if [ -z "$PORTS" ]; then
+	for dev in /sys/class/net/eth*; do
+		[ -e "$dev" ] || continue
+		PORTS="$PORTS $(basename "$dev")"
+	done
+fi
+PORTS="$(echo $PORTS)"
+
+if [ -n "$PORTS" ]; then
+	echo "R200: LAN 网口 -> $PORTS"
+	uci -q batch <<-EOF
+		set network.lan.type='bridge'
+		set network.lan.ifname='$PORTS'
+		set network.lan.proto='static'
+		set network.lan.ipaddr='192.168.1.1'
+		set network.lan.netmask='255.255.255.0'
+		set network.lan.ip6assign='60'
+	EOF
+else
+	echo "R200: 没找到以太网口，请手动 uci set network.lan.ifname=..."
+fi
+
+# ---- 默认关掉 mwan/dhcp 相关的多余东西，保持精简 ----
+uci -q delete network.wan6 2>/dev/null
+uci -q set dhcp.lan.ignore='0'
+uci -q set dhcp.lan.start='100'
+uci -q set dhcp.lan.limit='150'
+uci -q set dhcp.lan.leasetime='12h'
+
+uci commit
+/etc/init.d/dnsmasq restart 2>/dev/null
+/etc/init.d/firewall restart 2>/dev/null
+/etc/init.d/dropbear enable 2>/dev/null
+
+exit 0
