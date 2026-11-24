@@ -61,4 +61,6 @@ if "%RC%"=="0" (
   echo [X] flash failed - read the messages above.
   echo     If it says the port is busy, close QFIL first and re-enter EDL.
 )
+echo.
+pause
 endlocal
