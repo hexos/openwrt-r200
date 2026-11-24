@@ -1,0 +1,26 @@
+name: probe3
+on:
+  workflow_dispatch:
+    inputs:
+      variant:
+        description: "variant"
+        default: "musl-core"
+jobs:
+  p:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 200
+    env:
+      VARIANT: ${{ github.event.inputs.variant }}
+      OPENWRT_RELEASE: ${{ github.event.inputs.variant }}
+    steps:
+      - name: if with env contains
+        if: contains(env.VARIANT, 'vendor')
+        run: echo "vendor branch"
+      - name: if with negation
+        if: ${{ !contains(env.VARIANT, 'glibc') }}
+        run: echo "not glibc"
+      - name: dump env
+        run: |
+          echo "VARIANT=$VARIANT"
+          : "${VARIANT:=fallback}"
+          echo "VARIANT2=$VARIANT"
