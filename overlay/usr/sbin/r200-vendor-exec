@@ -1,0 +1,43 @@
+#!/bin/sh
+# r200-vendor-exec —— 运行厂商 glibc 二进制的统一入口
+#
+# 原厂的 5G 拨号（netmgrd / dialup / qmi_ip_multiclient / rmnetcli）和
+# WiFi（hostapd / wpa_supplicant / wlan_services）、交换芯片（ssdk_sh）都是
+# **armhf glibc 2.28** 编的，而 OpenWrt 默认是 musl。两种 libc 不能混在同一个
+# 进程里，但"用厂商自带的 ld.so 去加载厂商二进制"是完全合法的做法 —— 每个厂商
+# 守护进程都是一个独立进程，彼此不共享 libc。
+#
+# 用法：
+#     r200-vendor-exec netmgrd -f /opt/vendor/etc/qapi.conf
+#     r200-vendor-exec hostapd -B /etc/misc/wifi/hostapd.conf
+#
+# 行为：
+#   * 系统本身就是 glibc（比如你编了 glibc 版 OpenWrt）→ 直接 exec；
+#   * 否则 → 用 /opt/vendor/lib/ld-linux-armhf.so.3 + --library-path 加载。
+set -e
+
+VENDOR=/opt/vendor
+BIN="$1"
+[ -n "$BIN" ] || { echo "用法: r200-vendor-exec <二进制> [参数...]" >&2; exit 2; }
+shift
+
+case "$BIN" in
+	/*) TARGET="$BIN" ;;
+	*)  TARGET="$VENDOR/bin/$BIN" ;;
+esac
+[ -x "$TARGET" ] || { echo "r200-vendor-exec: 找不到可执行文件 $TARGET" >&2; exit 127; }
+
+LOADER="$VENDOR/lib/ld-linux-armhf.so.3"
+
+# 系统级已有厂商同款加载器（glibc 版 OpenWrt）就直接跑
+if [ -x /lib/ld-linux-armhf.so.3 ] || [ -x /lib/ld-linux.so.3 ]; then
+	exec "$TARGET" "$@"
+fi
+
+if [ -x "$LOADER" ]; then
+	exec "$LOADER" --library-path "$VENDOR/lib:$VENDOR/lib/extra" "$TARGET" "$@"
+fi
+
+echo "r200-vendor-exec: 既没有系统 glibc，也没有 $LOADER" >&2
+echo "                  请确认 vendor-stack 已叠加到 /opt/vendor" >&2
+exit 127
