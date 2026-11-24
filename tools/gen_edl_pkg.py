@@ -127,8 +127,14 @@ def main():
     with open(os.path.join(args.out, "rawprogram_r200_openwrt.xml"), "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
 
-    # patch XML：原厂那份会去改 MIBIB（partition_complete_p4K_b256K.mbn），
-    # 而我们不动 mibib，所以默认给一个空的 patсhes 文件，避免刷写工具去找不存在的分区表文件。
+    # patch XML：
+    #  * 默认**不生成** patch 文件 —— 我们不改 MIBIB，本来就没有要 patch 的东西；
+    #  * 而且 fh_loader 的 XML 解析器很挑：它要求每个标签自闭合（`<x ... />`），
+    #    一个空的 `<patches></patches>` 会让它报
+    #    "XML packet not formed correctly / Could not find closing />" 直接失败
+    #    （QFIL 会把这一步当致命错误，虽然 rawprogram 那步其实已经刷完了）。
+    #  * 只有确实要跟原厂一样改 MIBIB 时，才用 --vendor-patch 沿用原厂那份。
+    patch_out = os.path.join(args.out, "patch_r200.xml")
     if args.vendor_patch:
         vendor_patch = None
         for name in os.listdir(args.fwdir):
@@ -136,12 +142,14 @@ def main():
                 vendor_patch = os.path.join(args.fwdir, name)
                 break
         if vendor_patch:
-            shutil.copy2(vendor_patch, os.path.join(args.out, "patch_r200.xml"))
+            shutil.copy2(vendor_patch, patch_out)
+            print("  已沿用原厂 patch（会改 MIBIB，仅在整包刷写时使用）")
         else:
-            print("!! 未找到原厂 patch xml，改用空 patch", file=sys.stderr)
-    if not args.vendor_patch or not os.path.exists(os.path.join(args.out, "patch_r200.xml")):
-        with open(os.path.join(args.out, "patch_r200.xml"), "w", encoding="utf-8") as f:
-            f.write('<?xml version="1.0" ?>\n<patches>\n</patches>\n')
+            print("!! 未找到原厂 patch xml", file=sys.stderr)
+    elif os.path.exists(patch_out):
+        os.remove(patch_out)          # 清掉旧版本留下的坏 patch
+    if not args.vendor_patch and not os.path.exists(patch_out):
+        print("  未生成 patch 文件：QFIL 里 Patch 一栏留空即可（本包只写 system）")
 
     prog = os.path.join(args.fwdir, args.programmer)
     if os.path.exists(prog):
@@ -172,7 +180,8 @@ WIN_HELP = """品速 R200 —— OpenWrt 分区刷写（Windows / QFIL）
 2. QFIL 里选择：
      Programmer Path : {programmer}
      Raw Program     : rawprogram_r200_openwrt.xml
-     Patch XML       : patch_r200.xml
+     Patch XML       : **留空**（本包不 patch 任何东西；若 QFIL 强制要选文件，
+                       改用同目录的 flash_fh_loader.bat，见下）
    （"Flat Build" 模式）
 3. 点 Download，等待 "Finish Download"。
 4. 拔线、重新上电。首次启动大约 30~60 秒，之后浏览器访问 http://192.168.1.1 。
@@ -180,7 +189,11 @@ WIN_HELP = """品速 R200 —— OpenWrt 分区刷写（Windows / QFIL）
 注意：
   * 本包只写 system 分区，bootloader / 基带 / 出厂校准数据都不动，
     出问题可以随时用原厂固件包整机刷回来。
-  * 若 QFIL 报 "The file ... does not exist"，检查本目录里的文件名必须与
+  * QFIL 若报 "FireHose Fail: FHLoader Fail"，先彻底断电重进 9008 再试一次；
+    仍失败就用 flash_fh_loader.bat（它绕开 QFIL 的 setactivepartition 预处理）。
+  * QFIL 若报 "XML is not formatted correctly ... Could not find closing />"，
+    说明它不接受空 patch：Patch 一栏留空，或改用 flash_fh_loader.bat。
+  * 若 QFIL 报 "The file ... does not exist"，检查本目录文件名必须与
     rawprogram 里写的一致（不要改名）。
 """
 
