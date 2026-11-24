@@ -1,0 +1,26 @@
+#!/bin/sh
+# R200 (SDX55 / sdxprairie) —— 挂载根文件系统
+#
+# 为什么不用 OpenWrt 默认的 mount_root：
+#   原厂内核 4.14.206-perf 编译时 CONFIG_OVERLAY_FS 未开启，
+#   OpenWrt 常规的 "squashfs + overlayfs" 或 "ubifs + rootfs_data 卷 + overlayfs"
+#   两条路都走不通。R200 的方案是把整个 OpenWrt rootfs 做成一个可写的 UBIFS 卷
+#   （卷名 rootfs，位于 system 分区），直接当 / 用。
+#
+# 内核命令行里原厂给的是 "ro"，所以这里只做一件事：把 / 重新挂成可写。
+
+r200_mount_root() {
+	mkdir -p /tmp /var /dev /proc /sys /mnt
+
+	mount -o remount,rw / 2>/dev/null || true
+
+	if touch /.rwtest 2>/dev/null; then
+		rm -f /.rwtest
+		echo "R200: 根分区已可写（UBI 卷 rootfs）"
+	else
+		echo "R200: 警告 —— 根分区仍然是只读，OpenWrt 将无法保存配置！" >&2
+		echo "R200: 请检查 system 分区里的 UBI 卷名是否仍为 rootfs，以及是否写满。" >&2
+	fi
+}
+
+boot_hook_add preinit_main r200_mount_root
