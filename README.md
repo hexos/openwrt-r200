@@ -116,6 +116,8 @@ openwrt-r200/
    ├─ check_ubi.py                # 刷机前自检：几何/卷名/大小/UBIFS 超级块
    ├─ gen_edl_pkg.py              # 生成 9008 刷机包
    ├─ selftest.py                 # ★ 仓库自检（CI 第一步就跑它，45 项检查）
+   ├─ check-partition-table.ps1   # 不装 Python 也能核对原厂分区表（Windows PowerShell 5.1）
+   ├─ publish_github.py           # 无 git 也能把仓库推到 GitHub（REST API）
    └─ build.sh                    # 一条命令跑完本地构建
 ```
 
@@ -142,3 +144,4 @@ python3 tools/prepare_vendor_stack.py --verify -o vendor-stack
 
 * 本仓库只包含脚本、配置与文本形式的原厂分区描述 XML，**不含任何 Qualcomm / 美格 / 品速的二进制**。
 * 刷机有风险。改坏了用原厂整机 9008 包可完全恢复；请勿在没备份 `efs2` 的情况下乱动校准分区。
+
