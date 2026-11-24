@@ -50,6 +50,9 @@
 4. 跑完下载 Artifact `r200-openwrt-<variant>`，解压得到 `edl-r200/`。
 5. 按 [`docs/flash.md`](docs/flash.md) 用 QFIL 刷 `rawprogram_r200_openwrt.xml`。
 
+> 本仓库已经把厂商栈放在 Release 资产里（`vendor-stack-2026-11-24`），
+> 跑 `musl-vendor` 时直接把它的下载地址填进 `vendor_stack_url` 即可。
+
 ## 快速开始（本地 Linux / WSL）
 
 ```bash
