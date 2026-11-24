@@ -9,10 +9,10 @@
 >    看到 `[PASS]` 才继续。或者最省事：直接看原厂 XML 里 system 那行的
 >    `start_sector="64832"` / `num_partition_sectors="66240"` 对不对得上。
 > 1. 建目录 `C:\R200-openwrt\`，放 4 个文件：`rawprogram_r200_openwrt.xml`、
->    `patch_r200.xml`、`system.ubi`（这三个来自 CI 的 `edl-r200/`）、
+>    `system.ubi`（这两个来自 CI 的 `edl-r200/`）、
 >    `prog_firehose_sdx55.mbn`（从原厂目录复制）。
 > 2. QFIL：Programmer = 那个 mbn；Search Path = `C:\R200-openwrt`；
->    **Load XML** 选 `rawprogram_r200_openwrt.xml` + `patch_r200.xml`；**Download**。
+>    **Load XML** 只选 `rawprogram_r200_openwrt.xml`，**Patch 留空**；**Download**。
 > 3. 拔线重上电，浏览器开 <http://192.168.1.1>。
 >
 > 出问题 → 用原厂整机包重刷（见文末"回滚"）。它只写了 `system` 一个分区，随时可退。
@@ -39,14 +39,14 @@ EDL 是 SoC 内部固化的下载模式，只要进了 9008，砖机也能救。
 1. 装 QFIL（随 Qualcomm QPST 发布）。
 2. 把构建产物 `edl-r200/` 里的所有文件，复制到**原厂刷机包目录**
    （即含 `prog_firehose_sdx55.mbn`、`rawprogram_nand_p4K_b256K.xml` 的那个目录）。
-   这样做的好处：firehose 程序、patch 文件都在手边，不会缺文件。
+   这样做的好处：firehose 程序就在手边，不会缺文件。（本包不需要 patch 文件。）
 3. QFIL → `Select Build Type: Flat Build`，然后：
 
    | 项 | 选什么 |
    |---|---|
    | Programmer Path | `prog_firehose_sdx55.mbn` |
    | Raw Program | `rawprogram_r200_openwrt.xml` |
-   | Patch XML | `patch_r200.xml` |
+   | Patch XML | **留空**（本包不需要；不能给空 `<patches></patches>`，fh_loader 会报错） |
 
 4. 点 **Download**。写入量约 60~100 MiB（只写 system 分区），一般 1~3 分钟。
 5. 看到 `Finish Download` 后拔线、重新上电。
@@ -112,10 +112,14 @@ fh_loader.exe --port=\\.\COM10 --search_path="<包目录>" ^
 
 **B. 用开源 edl（长期推荐，自己带 Sahara→Firehose）**
 
+> edl 的 `qfil` 命令要求两个 XML 参数，但 edl 用 Python 解析、能接受空 patch。
+> 随便建一个 `patch_empty.xml`，内容就一行 `<patches/>`
+> （**别在 QFIL 里选它** —— fh_loader 不认这种写法，会报 `Could not find closing />`）。
+
 ```powershell
 winget install -e --id Python.Python.3.12
 python -m pip install edlclient
-edl qfil rawprogram_r200_openwrt.xml patch_r200.xml --loader=prog_firehose_sdx55.mbn --memory=nand
+edl qfil rawprogram_r200_openwrt.xml patch_empty.xml --loader=prog_firehose_sdx55.mbn --memory=nand
 ```
 
 ## 3. Linux：bkerler/edl
@@ -123,7 +127,7 @@ edl qfil rawprogram_r200_openwrt.xml patch_r200.xml --loader=prog_firehose_sdx55
 ```bash
 pip install edlclient            
 edl printgpt                     # 确认 9008 通了
-edl qfil rawprogram_r200_openwrt.xml patch_r200.xml \
+edl qfil rawprogram_r200_openwrt.xml patch_empty.xml \
     --loader ../Maincode/prog_firehose_sdx55.mbn
 ```
 
