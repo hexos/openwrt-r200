@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env bash
+#!/usr/bin/env bash
 # fetch_rootfs.sh —— 取得一份可用于 R200 的 OpenWrt rootfs 目录（展开好的）。
 #
 #   ./tools/fetch_rootfs.sh <输出目录>
