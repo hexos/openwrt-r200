@@ -1,0 +1,236 @@
+﻿name: build-r200-openwrt
+
+# 品速智联 R200（Qualcomm SDX55 / sdxprairie）OpenWrt 根文件系统全自动构建。
+#
+# 三种变体（workflow_dispatch 的 variant 输入）：
+#   musl-core    纯 OpenWrt（musl）：能启动、能管好网络，但没有 5G/WiFi
+#   musl-vendor  OpenWrt（musl）+ 原厂 glibc 厂商栈（默认）：
+#                厂商二进制用自带 ld-linux-armhf.so.3 运行，5G/WiFi 才有戏
+#   glibc-vendor 用 glibc 从源码编 OpenWrt + 原厂厂商栈：
+#                厂商二进制可直接执行，最"干净"但构建要 1~2 小时
+#
+# 产物（Artifacts → r200-openwrt）：system.ubi + rawprogram/patch XML + 刷机说明 + 校验和
+
+on:
+  workflow_dispatch:
+    inputs:
+      variant:
+        description: "变体"
+        type: choice
+        options: [musl-vendor, musl-core, glibc-vendor]
+        default: musl-vendor
+      openwrt_release:
+        description: "OpenWrt 版本"
+        default: "23.05.5"
+      vendor_stack_url:
+        description: "厂商栈 tar.gz 的下载地址（vendor 变体必填，用 prepare_vendor_stack.py 生成）"
+        default: ""
+      openwrt_target:
+        description: "目标（必须 CPU_TYPE=cortex-a7）"
+        default: "sunxi"
+      openwrt_subtarget:
+        description: "子目标"
+        default: "cortexa7"
+      openwrt_profile:
+        description: "用于生成 rootfs 的 profile"
+        default: "friendlyarm_nanopi-neo"
+      packages:
+        description: "覆盖软件包列表（留空用默认）"
+        default: ""
+      rootfs_url:
+        description: "可选：直接指定 rootfs.tar.gz 地址，跳过构建"
+        default: ""
+      pad_image:
+        description: "把 system.ubi 用 0xFF 补齐到整个分区（产物会大很多）"
+        type: boolean
+        default: false
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - "tools/**"
+      - "overlay/**"
+      - "config/**"
+      - ".github/workflows/build.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 200
+    env:
+      VARIANT: ${{ inputs.variant || 'musl-vendor' }}
+      OPENWRT_RELEASE: ${{ inputs.openwrt_release || '23.05.5' }}
+      OPENWRT_TARGET: ${{ inputs.openwrt_target || 'sunxi' }}
+      OPENWRT_SUBTARGET: ${{ inputs.openwrt_subtarget || 'cortexa7' }}
+      OPENWRT_PROFILE: ${{ inputs.openwrt_profile || 'friendlyarm_nanopi-neo' }}
+      ROOTFS_URL: ${{ inputs.rootfs_url || '' }}
+      PACKAGES: ${{ inputs.packages || '' }}
+      PAD: ${{ inputs.pad_image == true && 'yes' || 'no' }}
+      VENDOR_STACK_URL: ${{ inputs.vendor_stack_url || '' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential git wget curl xz-utils zip unzip python3 \
+            mtd-utils e2fsprogs squashfs-tools device-tree-compiler
+          echo "mkfs.ubifs: $(command -v mkfs.ubifs)"
+          echo "ubinize   : $(command -v ubinize)"
+          chmod +x tools/*.sh
+
+      - name: 仓库自检（不起构建前先验工程自洽）
+        run: python3 tools/selftest.py
+
+      - name: 变体说明
+        run: |
+          cat <<EOF
+          == 变体 ${VARIANT} ==
+          根文件系统跑在原厂 4.14.206-perf 内核上：
+            CONFIG_OVERLAY_FS 未开启 -> 可写 UBIFS 单卷根，不用 overlayfs
+            CONFIG_NF_TABLES  未开启 -> iptables + firewall3，不用 fw4
+            CPU 为 Cortex-A7          -> 必须用 arm_cortex-a7_neon-vfpv4 的包
+          EOF
+
+      # ---------- 1) 厂商栈（vendor 变体）----------
+      - name: 下载并自检厂商栈
+        if: contains(env.VARIANT, 'vendor')
+        run: |
+          if [ -z "$VENDOR_STACK_URL" ]; then
+            echo "!! vendor 变体必须提供 vendor_stack_url" >&2
+            echo "   在本机跑： python3 tools/prepare_vendor_stack.py <原厂固件> -o vendor-stack" >&2
+            echo "   然后 tar -czf vendor-stack.tar.gz -C vendor-stack . 并上传到 Release/网盘" >&2
+            exit 1
+          fi
+          mkdir -p out/vendor-stack
+          curl -fsSL -o out/vendor-stack.tar.gz "$VENDOR_STACK_URL"
+          tar -xzf out/vendor-stack.tar.gz -C out/vendor-stack
+          test -x out/vendor-stack/opt/vendor/lib/ld-linux-armhf.so.3 || {
+            echo "!! 厂商栈里缺 glibc 加载器" >&2; exit 1; }
+          python3 tools/prepare_vendor_stack.py --verify -o out/vendor-stack
+
+      # ---------- 2) 取 rootfs ----------
+      - name: 取 rootfs（ImageBuilder，musl）
+        if: ${{ !contains(env.VARIANT, 'glibc') }}
+        run: |
+          chmod +x tools/*.sh
+          bash tools/fetch_rootfs.sh out/rootfs-pkg
+
+      - name: 取 rootfs（源码构建，glibc）
+        if: contains(env.VARIANT, 'glibc')
+        run: |
+          sudo apt-get install -y --no-install-recommends rsync python3-distutils
+          git clone --depth 1 -b "v${OPENWRT_RELEASE}" https://github.com/openwrt/openwrt.git src
+          cd src
+          cp "$GITHUB_WORKSPACE/config/openwrt-glibc.seed" .config
+          make defconfig
+          if ! grep -q '^CONFIG_USE_GLIBC=y' .config; then
+            echo "!! 该目标不支持 glibc，请改用 musl-vendor 变体" >&2
+            grep -E '^CONFIG_(USE_GLIBC|LIBC)' .config || true
+            exit 1
+          fi
+          make -j"$(nproc)" V=s 2>&1 | tail -60
+          mkdir -p "$GITHUB_WORKSPACE/out"
+          bash "$GITHUB_WORKSPACE/tools/extract_rootfs.sh" "$PWD" "$GITHUB_WORKSPACE/out/rootfs-pkg/rootfs"
+
+      - name: 规整 rootfs
+        run: |
+          ROOTFS=out/rootfs-pkg/rootfs
+          test -x "$ROOTFS/sbin/init" -o -f "$ROOTFS/etc/preinit"
+          echo "--- rootfs 概览 ---"; ls "$ROOTFS"; du -sh "$ROOTFS"
+          # OpenWrt 自带的 kmod 是给它自己的 5.15 内核准备的，对我们毫无用处
+          rm -rf "$ROOTFS"/lib/modules/5.15* || true
+          # libc 检查：musl 变体应该有 ld-musl-*，glibc 变体应该有 ld-linux-*
+          ls "$ROOTFS"/lib/ld-* 2>/dev/null || true
+
+      # ---------- 3) 叠加 overlay + 厂商栈 ----------
+      - name: 叠加 overlay
+        run: |
+          cp -a overlay/. out/rootfs-pkg/rootfs/
+          chmod +x out/rootfs-pkg/rootfs/usr/sbin/r200-vendor-exec \
+                   out/rootfs-pkg/rootfs/etc/init.d/r200-vendor \
+                   out/rootfs-pkg/rootfs/etc/uci-defaults/* || true
+
+      - name: 叠加厂商栈
+        if: contains(env.VARIANT, 'vendor')
+        run: |
+          cp -a out/vendor-stack/. out/rootfs-pkg/rootfs/
+          echo "--- 厂商栈落地检查 ---"
+          ls out/rootfs-pkg/rootfs/opt/vendor/bin
+          ls out/rootfs-pkg/rootfs/lib/modules/*/extra/wlan.ko 2>/dev/null || \
+            echo "! 没有 wlan.ko（WiFi 组没抽？）"
+          ls out/rootfs-pkg/rootfs/lib/firmware/wlan/qca_cld/ 2>/dev/null || true
+
+      # ---------- 4) 做 UBI ----------
+      - name: 生成 system.ubi
+        run: |
+          bash tools/mksystemubi.sh out/rootfs-pkg/rootfs out/system.ubi
+          if [ "${PAD}" != "yes" ]; then
+            python3 - <<'PY'
+import os
+p = "out/system.ubi"
+data = open(p, "rb").read()
+i = len(data)
+while i >= 262144 and data[i-262144:i] == b"\xff" * 262144:
+    i -= 262144
+with open(p, "r+b") as f:
+    f.truncate(i)
+print(f"去掉尾部填充后 {i} 字节 ({i/1048576:.1f} MiB)")
+PY
+          fi
+          ls -l out/system.ubi
+
+      - name: 刷机前自检（几何 / 卷名 / UBIFS 超级块）
+        run: python3 tools/check_ubi.py out/system.ubi
+
+      - name: 生成 9008 刷机包
+        run: |
+          python3 tools/gen_edl_pkg.py --fwdir firmware --out out/edl-r200 \
+            --system out/system.ubi --no-pad
+
+      - name: 记录构建信息
+        run: |
+          {
+            echo "variant=${VARIANT}"
+            echo "openwrt=${OPENWRT_RELEASE} target=${OPENWRT_TARGET}/${OPENWRT_SUBTARGET}"
+            echo "profile=${OPENWRT_PROFILE}"
+            echo "built_at=$(date -u +%FT%TZ)"
+            echo "rootfs_size=$(du -sb out/rootfs-pkg/rootfs | cut -f1)"
+            echo "ubi_size=$(stat -c %s out/system.ubi)"
+          } > out/edl-r200/BUILD-INFO.txt
+          cat out/edl-r200/BUILD-INFO.txt
+
+      - name: 打包
+        run: |
+          cd out
+          zip -9 -r r200-openwrt-flash.zip edl-r200
+          ls -l r200-openwrt-flash.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: r200-openwrt-${{ env.VARIANT }}
+          path: |
+            out/r200-openwrt-flash.zip
+            out/edl-r200/SHA256SUMS
+            out/edl-r200/BUILD-INFO.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: 摘要
+        run: |
+          {
+            echo "## R200 OpenWrt 构建结果（$VARIANT）"
+            echo ""
+            echo "- OpenWrt: \`${OPENWRT_RELEASE}\` / \`${OPENWRT_TARGET}/${OPENWRT_SUBTARGET}\`"
+            echo "- system.ubi: $(stat -c %s out/system.ubi) 字节"
+            echo ""
+            echo "刷机：解压 \`r200-openwrt-flash.zip\`，把 \`edl-r200/\` 里的文件复制到原厂"
+            echo "9008 刷机包目录（含 \`prog_firehose_sdx55.mbn\`），QFIL 选"
+            echo "\`rawprogram_r200_openwrt.xml\` + \`patch_r200.xml\` 刷入。"
+            echo "只写 system 分区，bootloader/基带/校准数据不动，随时可用原厂包回滚。"
+          } >> "$GITHUB_STEP_SUMMARY"
