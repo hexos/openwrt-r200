@@ -1,0 +1,44 @@
+# OpenWrt 源码构建 seed（diffconfig 风格）
+# 目的：用 glibc 而不是 musl 编一份 cortex-a7 的 OpenWrt 用户空间，
+#       这样原厂那套 armhf glibc 2.28 的厂商二进制（netmgrd / hostapd / ssdk_sh）
+#       可以直接执行，不需要 /opt/vendor/lib/ld-linux-armhf.so.3 这层包装。
+#
+# 用法：
+#   git clone -b v23.05.5 --depth 1 https://github.com/openwrt/openwrt.git
+#   cd openwrt && cp <本文件> .config && make defconfig
+#   grep -q '^CONFIG_USE_GLIBC=y' .config || echo "本目标不支持 glibc，改用 musl-vendor 方案"
+#   make -j$(nproc)
+
+CONFIG_TARGET_sunxi=y
+CONFIG_TARGET_sunxi_cortexa7=y
+CONFIG_TARGET_MULTI_PROFILE=y
+CONFIG_TARGET_DEVICE_sunxi_cortexa7_DEVICE_friendlyarm_nanopi-neo=y
+CONFIG_TARGET_DEVICE_PACKAGES_sunxi_cortexa7_DEVICE_friendlyarm_nanopi-neo=""
+
+# 关键一条：改用 glibc
+CONFIG_USE_GLIBC=y
+
+# 精简：不要这些用不上的（省编译时间与体积）
+CONFIG_PACKAGE_wpad-basic-mbedtls=n
+CONFIG_PACKAGE_wpad=n
+CONFIG_PACKAGE_firewall4=n
+CONFIG_PACKAGE_nftables=n
+CONFIG_PACKAGE_kmod-nft-offload=n
+
+# 要的
+CONFIG_PACKAGE_luci=y
+CONFIG_PACKAGE_luci-ssl=y
+CONFIG_PACKAGE_dropbear=y
+CONFIG_PACKAGE_dnsmasq=y
+CONFIG_PACKAGE_firewall=y
+CONFIG_PACKAGE_iptables=y
+CONFIG_PACKAGE_iptables-mod-conntrack-extra=y
+CONFIG_PACKAGE_iptables-mod-extra=y
+CONFIG_PACKAGE_iptables-mod-filter=y
+CONFIG_PACKAGE_iptables-mod-nat-extra=y
+CONFIG_PACKAGE_iptables-mod-ipopt=y
+CONFIG_PACKAGE_block-mount=y
+CONFIG_PACKAGE_kmod-fs-vfat=y
+
+# 不需要 kmod（原厂内核不吃 OpenWrt 的 .ko，编了也是死文件）
+CONFIG_ALL_KMODS=n
