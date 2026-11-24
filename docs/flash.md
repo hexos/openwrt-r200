@@ -56,11 +56,57 @@ EDL 是 SoC 内部固化的下载模式，只要进了 9008，砖机也能救。
 > 不会碰 sbl/mibib/efs2/modem/recoveryfs。想同时换 `boot`，用
 > `gen_edl_pkg.py --boot <你的 boot.img>` 重新生成一份即可。
 
+## 2.5 QFIL 报 `Download Fail:FireHose Fail:FHLoader Fail:Process fail` 怎么办
+
+**这不是镜像的问题，QFIL 的 GUI 流程在这台 NAND 机上走不通。** 真实原因在
+`%APPDATA%\Qualcomm\QFIL\COMPORT_<n>\port_trace.txt` 里能看到：
+
+```
+fh_loader.exe --port=\\.\COM10 --setactivepartition=0 ... --memoryname=nand
+<configure MemoryName="nand" .../>            <- 通了
+<setbootablestoragedrive value="0" />         <- QFIL 因为 --setactivepartition=0 自动发的
+TARGET: 'INFO: NAND was previously open, returning existing handle 0'
+TARGET: 'ERROR: Set Bootable Failed 1'  -> NAK -> QFIL 当致命错误终止
+```
+
+`setbootablestoragedrive` 是 eMMC/UFS 的"从哪个 LUN 启动"概念，对 NAND 没有意义，
+sdx55 的 NAND programmer 直接回 `Set Bootable Failed 1`。也就是说：
+Sahara / programmer 加载 / USB / 驱动 **全都是好的**，只差最后这一步被 QFIL 拖死。
+
+两条绕开它的路：
+
+**A. 直接用 fh_loader（包里已带 `flash_fh_loader.bat`，不用装 Python）**
+
+先让 QFIL 点一次 Download、停在 `Set Bootable` 报错（此时 programmer 已加载、别拔线），
+然后在包目录里执行：
+
+```bat
+flash_fh_loader.bat 10
+```
+
+它做的事就是去掉 `--setactivepartition`：
+```bat
+fh_loader.exe --port=\\.\COM10 --search_path="<包目录>" ^
+  --sendxml=rawprogram_r200_openwrt.xml --noprompt ^
+  --showpercentagecomplete --zlpawarehost=1 --memoryname=nand --verbose=2
+```
+
+**B. 用开源 edl（推荐长期用，能自己带 programmer 握手）**
+
+```powershell
+winget install -e --id Python.Python.3.12
+python -m pip install edlclient
+edl qfil rawprogram_r200_openwrt.xml patch_r200.xml --loader=prog_firehose_sdx55.mbn --memory=nand
+```
+
+> 顺带一个结论：如果**原厂整机包**在这台 QFIL 上同样报 `FHLoader Fail`，说明品速/美格
+> 原厂也不是用 QFIL GUI 刷的（他们有自己的 fh_loader 批处理或私有工具）。
+> 这不影响我们的方案 —— 上面两条路都能刷。
+
 ## 3. Linux：bkerler/edl
 
 ```bash
-pip install edlclient            # 或 git clone https://github.com/bkerler/edl
-cd edl-r200
+pip install edlclient            
 edl printgpt                     # 确认 9008 通了
 edl qfil rawprogram_r200_openwrt.xml patch_r200.xml \
     --loader ../Maincode/prog_firehose_sdx55.mbn
