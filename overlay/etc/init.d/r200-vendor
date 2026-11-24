@@ -1,0 +1,90 @@
+#!/bin/sh /etc/rc.common
+# r200-vendor —— 启动原厂 glibc 那套 5G / WiFi / 交换芯片用户态
+#
+# 前置条件（由 tools/prepare_vendor_stack.py 生成、构建时叠加进 rootfs）：
+#   /opt/vendor/bin/*            厂商二进制（netmgrd, hostapd, ssdk_sh ...）
+#   /opt/vendor/lib/*            厂商 glibc 2.28 运行时（含 ld-linux-armhf.so.3）
+#   /lib/modules/4.14.206-perf/  原厂内核模块（wlan.ko, qca-ssdk.ko ...）
+#   /lib/firmware/{wlan,ipa*}    固件与板级校准（WCNSS_qcom_cfg.ini, wlan_mac.bin）
+#
+# 注意：这些模块是给**原厂 4.14.206-perf 内核**编的，vermagic 必须对得上。
+# 如果哪天换了自编内核，这个脚本里的 insmod 全部会失败（-EINVAL），那属于预期。
+
+START=95
+STOP=10
+USE_PROCD=1
+
+. /lib/functions.sh
+
+MODDIR=/lib/modules/4.14.206-perf
+VENDOR=/opt/vendor
+
+enabled() {
+	[ "$(uci -q get r200.vendor.enable)" = "1" ] || return 1
+	[ -x "$VENDOR/bin/netmgrd" ] || return 1
+	return 0
+}
+
+load_mod() {
+	local m="$1"
+	[ -f "$MODDIR/$m" ] || { logger -t r200-vendor "缺少模块 $m"; return 1; }
+	insmod "$MODDIR/$m" 2>/dev/null || {
+		# 已经加载过不算错
+		grep -q "^$(basename "$m" .ko) " /proc/modules && return 0
+		logger -t r200-vendor "insmod $m 失败（内核版本/vermagic 不匹配？）"
+		return 1
+	}
+}
+
+load_wifi_modules() {
+	command -v find >/dev/null 2>&1
+	for m in "$MODDIR"/extra/wlan.ko "$MODDIR"/extra/wlan-mag.ko; do
+		[ -f "$m" ] && load_mod "extra/$(basename "$m")"
+	done
+}
+
+load_switch_modules() {
+	local m
+	for m in "$MODDIR"/kernel/drivers/qca-ssdk-nohnat/qca-ssdk.ko; do
+		[ -f "$m" ] && load_mod "kernel/drivers/qca-ssdk-nohnat/$(basename "$m")"
+	done
+}
+
+start_service() {
+	enabled || { logger -t r200-vendor "未启用（uci set r200.vendor.enable=1）"; return 0; }
+
+	# WiFi 固件路径：原厂把 qca_cld 的配置/校准放在 /lib/firmware/wlan/qca_cld
+	[ -d /lib/firmware/wlan/qca_cld ] || \
+		logger -t r200-vendor "警告：缺 /lib/firmware/wlan/qca_cld（qcacld 起不来）"
+
+	[ "$(uci -q get r200.vendor.wifi)" = "1" ] && load_wifi_modules
+	[ "$(uci -q get r200.vendor.switch)" = "1" ] && load_switch_modules
+
+	# netmgrd：QMI 侧的连接管理守护进程（5G 拨号的基础）
+	procd_open_instance netmgrd
+	procd_set_param command /usr/sbin/r200-vendor-exec netmgrd
+	procd_set_param respawn 3600 5 0
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_close_instance
+
+	# hostapd：qcacld 私有栈，必须用厂商这版（OpenWrt 的 wpad 驱动不了它）
+	if [ "$(uci -q get r200.vendor.wifi)" = "1" ] && [ -f /etc/misc/wifi/hostapd.conf ]; then
+		procd_open_instance hostapd
+		procd_set_param command /usr/sbin/r200-vendor-exec hostapd -B /etc/misc/wifi/hostapd.conf
+		procd_set_param respawn 3600 5 0
+		procd_set_param stderr 1
+		procd_close_instance
+	fi
+}
+
+stop_service() {
+	for p in hostapd netmgrd; do
+		pidof "$p" >/dev/null 2>&1 && killall "$p" 2>/dev/null
+	done
+	return 0
+}
+
+service_triggers() {
+	procd_add_reload_trigger r200
+}
